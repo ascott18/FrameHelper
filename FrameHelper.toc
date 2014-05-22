@@ -1,0 +1,9 @@
+﻿## Interface: 50400
+## Title: FrameHelper
+## Version: 1.0
+## Author: Cybeloras
+## Notes: Helps developers with the design and layout of frames, layers, and general interfaces.
+## OptionalDeps: LibOO-1.0
+
+FrameHelper.lua
+FrameHelper.xml
