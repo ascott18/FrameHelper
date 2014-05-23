@@ -79,14 +79,9 @@
 					</Anchors>
 				</Texture>
 
-				<FontString name="$parentTitle" parentKey="title" inherits="GameFontNormal" justifyH="CENTER">
+				<FontString parentKey="title" inherits="GameFontNormal" justifyH="CENTER">
 					<Anchors>
 						<Anchor point="CENTER" relativeKey="$parent.HeaderBackground" y="0"/>
-					</Anchors>
-				</FontString>
-				<FontString name="$parentDesc" parentKey="desc" inherits="GameFontHighlight" justifyH="CENTER" justifyV="TOP">
-					<Anchors>
-						<Anchor point="TOP" y="-32"/>
 					</Anchors>
 				</FontString>
 			</Layer>
@@ -715,10 +710,36 @@
 		</Frames>
 	</Frame>
 
+	<Button name="FrameHelper_ResizeButton" parentKey="resizeButton" virtual="true">
+		<Size x="10" y="10"/>
+		<Anchors>
+			<Anchor point="BOTTOMRIGHT" x="3" y="-3"/>
+		</Anchors>
+		<HitRectInsets left="3" right="0" top="3" bottom="0" />
+		<Layers>
+			<Layer level="BACKGROUND">
+				<!-- TODO: THIS TEXTURE NEEDS TO BE INDEPENDENT -->
+				<Texture parentKey="texture" file="Interface\AddOns\TellMeWhen\Textures\Resize">
+					<Size x="10" y="10"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad>
+				self.texture:SetVertexColor(0.6, 0.6, 0.6)
+			</OnLoad>
+			<OnEnter>
+				self.texture:SetVertexColor(1, 1, 1)
+			</OnEnter>
+			<OnLeave>
+				self.texture:SetVertexColor(0.6, 0.6, 0.6)
+			</OnLeave>
+		</Scripts>
+	</Button>
 
 
 	<Frame name="FrameHelper_Editor" hidden="true" movable="true" clampedToScreen="true" enableMouse="true" enableKeyboard="true" propagateKeyboardInput="true" frameStrata="DIALOG" inherits="FrameHelper_SimpleDialog">
-		<Size x="650" y="380"/>
+		<Size x="650" y="500"/>
 		<Anchors>
 			<Anchor point="CENTER" relativeTo="UIParent"/>
 			<Anchor point="TOP" relativeTo="UIParent" y="-60"/>
@@ -728,13 +749,88 @@
 
 			<Frame name="$parentMain" parentKey="Main" >
 				<Anchors>
-					<Anchor point="TOPLEFT" y="-23"/>
-					<Anchor point="BOTTOMRIGHT" y="26"/>
+					<Anchor point="TOPLEFT" y="-25"/>
+					<Anchor point="BOTTOMRIGHT" x="-10" y="1"/>
 				</Anchors>
+				<Scripts>
+					<OnLoad>
+						FrameHelper:ConvertContainerToScrollFrame(self, true, -2)
+					</OnLoad>
+				</Scripts>
 			</Frame>
+
+			<Button parentKey="LoadParent" inherits="FrameHelper_ButtonTemplate">
+				<Anchors>
+					<Anchor point="LEFT" relativeKey="$parent.HeaderBackground" x="5"/>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						self:SetText("Load Parent")
+						self:SetWidth(self:GetTextWidth() + 10)
+						self.__noWrapTooltipText = 1
+						FrameHelper:TT(self, "Load Parent", function(self)
+							if not FrameHelper.CF or not FrameHelper.CF:GetParent() then
+								return ""
+							end
+							return FrameHelper:GenerateFramePathString(FrameHelper.CF:GetParent())
+						end, 1, 1)
+					</OnLoad>
+					<OnClick>
+						FrameHelper:Load(FrameHelper.CF:GetParent())
+						FrameHelper:TT_Update(self)
+					</OnClick>
+					<OnUpdate>
+						if FrameHelper.CF and FrameHelper.CF:GetParent() then
+							self:Enable()
+						else
+							self:Disable()
+						end
+					</OnUpdate>
+				</Scripts>
+			</Button>
+
+			<Button name="$parentLoadChild" parentKey="LoadChild" inherits="FrameHelper_ButtonTemplate">
+				<Anchors>
+					<Anchor point="CENTER" relativeKey="$parent.HeaderBackground" />
+					<Anchor point="RIGHT" relativeKey="$parent.CloseButton" relativePoint="LEFT" x="0"/>
+				</Anchors>
+				<Frames>
+
+					<Frame name="$parentDD" inherits="TMW_DropDownMenuTemplate" parentKey="DD" hidden="true">
+						<Anchors>
+							<Anchor point="LEFT" relativePoint="RIGHT" x="-15" y="-4"/>
+						</Anchors>
+					</Frame>
+				</Frames>
+				<Scripts>
+					<OnLoad>
+						self.DD.initialize = FrameHelper.DD_LoadChild
+
+						self:SetText("Load Child...")
+						self:SetWidth(self:GetTextWidth() + 10)
+					</OnLoad>
+					<OnClick>
+						ToggleDropDownMenu(1, nil, self.DD, self, 0, 0)
+					</OnClick>
+				</Scripts>
+			</Button>
 
 
 		</Frames>
+		<Scripts>
+			<OnLoad>
+				self.title:SetPoint("LEFT", self.LoadParent, "RIGHT", 5, 0)
+				self.title:SetPoint("RIGHT", self.LoadChild, "LEFT", -5, 0)
+
+				self.resizer = FrameHelper.C.Resizer_Generic:New(self)
+				self.resizer:Show()
+				self.resizer.scale_min = 0.4
+				self.resizer.y_min = 400
+				self.resizer.y_max = 1200
+				self.resizer:SetModes(self.resizer.MODE_SCALE, self.resizer.MODE_SIZE)
+
+			</OnLoad>
+		</Scripts>
 
 	</Frame>
 </Ui>

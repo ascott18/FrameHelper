@@ -5,6 +5,7 @@ local Classes = LibOO:GetNamespace("FrameHelper")
 
 
 FrameHelper = CreateFrame("Frame")
+FrameHelper.C = Classes
 
 
 local E, M
@@ -76,6 +77,127 @@ local function safecallf(method, ...)
 end
 
 
+do
+	-- Copied from ImprovedFrameStack, another addon of mine.
+
+	local function insert(t, k)
+		tinsert(t, 1, k)
+	end
+
+	local STR_UNKNOWN = "?"
+
+	-- Format the path nicely for the tooltip. Make it look like an actual["table"]["lookup"]["chain"]
+	local function fmt(t)
+		local s = ""
+		for i = 1, #t do
+			local k = t[i]
+			local str = tostring(k)
+			
+			if i == 1 then
+				s = k
+			else
+				if type(k) == "number" then
+					k = "[" .. k .. "]"
+				elseif str == STR_UNKNOWN then
+					k = "[" .. str .. "]"
+
+				--elseif str:find("[^A-Za-z_0-9]") or str:find("^[0-9]") then
+				else
+					k = "[\"" .. str .. "\"]"
+
+				--else
+				--    k = "." .. str
+				end
+
+				s = s .. k
+			end
+		end
+		
+		return s
+	end
+
+
+	local searchResults = {}
+	local fmtTable = {}
+
+	-- Generate the path for a frame and store it in searchResults
+	local function scanTables(parent, child, depth, maxDepth)
+		depth = depth + 1
+		for k, v in pairs(parent) do
+			if v == child then
+				insert(fmtTable, k)
+				return true
+			end
+		end
+
+		-- Breadth first. Limit the depth each time.
+		for i = depth+1, maxDepth do
+			for k, v in pairs(parent) do
+				if type(v) == "table" and depth < maxDepth then
+					local found = scanTables(v, child, depth, i)
+					if found then
+						insert(fmtTable, k)
+						return true
+					end
+				end
+			end
+		end
+	end
+
+	function FrameHelper:GenerateFramePathString(frame)
+		if frame:GetName() then
+			return frame:GetName()
+		end
+
+		wipe(fmtTable)
+
+		local parent = frame
+
+		-- Edge case: no parent at all.
+		if not frame:GetParent() then
+			searchResults[tostring(frame)] = "<No Parent>"
+			return
+		end
+		
+		local done = false
+		while true do
+			local child = parent
+			parent = parent:GetParent()
+			
+			-- Might happen if a frame was orphaned on purpose.
+			-- Accidental ophaning isn't possible in WoW as far as I know,
+			-- with maybe exception of changing a scroll child and not re-parenting the old child
+			if not parent then 
+				break
+			end
+			
+			local foundChildKey = scanTables(parent, child, 0, 4)
+
+
+			if not foundChildKey then
+				-- We didn't find a key so that parent[key] = child, so insert STR_UNKNOWN
+				-- to show that there is no straightforward ref from parent to child.
+				insert(fmtTable, STR_UNKNOWN)
+			end
+
+			if parent:GetName() then
+				-- This parent is named, so we now have a path from a named ancestor to the current frame.
+				-- This is what we want, so we are done.
+				insert(fmtTable, parent:GetName())
+
+				return fmt(fmtTable)
+			end
+		end
+
+
+		--insert(fmtTable, "<Unknown Parent>")
+
+		return fmt(fmtTable)
+	end
+end
+
+
+
 Classes:NewClass("Config_Frame", "Frame"){
 	XMLTemplate = "FrameHelper_BorderedFrame", -- shouldn't be used, but whatever
 
@@ -83,7 +205,6 @@ Classes:NewClass("Config_Frame", "Frame"){
 		local parent = M
 		local f = self:New(self.isFrameObject, M:GetName() .. Property.name, M, self.XMLTemplate, nil, Property)
 		M.frames[Property.name] = f
-		f.property = Property
 		Property.frame = f
 
 		if Property.init then
@@ -99,11 +220,30 @@ Classes:NewClass("Config_Frame", "Frame"){
 	end,
 
 
+	IsEditing = function(self)
+		if self:IsVisible() and self.isEditing then
+			return true
+		end
+		
+		for i, child in FrameHelper:Vararg(self:GetChildren()) do
+			if child.IsEditing and child:IsEditing() then
+				return true
+			end
+		end
+	end,
+
+	Refresh = function(self)
+		if not self:IsEditing() then
+			self:ReloadSetting()
+		end
+	end,
+
+
 	Set = function(self, ...)
-		return self.property:Set(...)
+		return self.data:Set(...)
 	end,
 	Get = function(self, ...)
-		return self.property:Get(...)
+		return self.data:Get(...)
 	end,
 }
 
@@ -117,6 +257,37 @@ Classes:NewClass("Config_Frame", "Frame"){
 }]]
 
 
+do -- vararg
+	local states = {}
+	local function getstate(...)
+		local state = wipe(tremove(states) or {})
+
+		state.i = 0
+		state.l = select("#", ...)
+
+		for n = 1, state.l do
+			state[n] = select(n, ...)
+		end
+
+		return state
+	end
+
+	local function iter(state)
+		local i = state.i
+		i = i + 1
+		if i > state.l then
+			tinsert(states, state)
+			return
+		end
+		state.i = i
+
+		return i, state[i], state.l
+	end
+
+	function FrameHelper:Vararg(...)
+		return iter, getstate(...)
+	end
+end
 
 
 Classes:NewClass("Config_EditBox", "EditBox", "Config_Frame"){
@@ -134,7 +305,12 @@ Classes:NewClass("Config_EditBox", "EditBox", "Config_Frame"){
 	
 
 	-- Scripts
+	OnEditFocusGained = function(self, button)
+		self.isEditing = true
+	end,
+
 	OnEditFocusLost = function(self, button)
+		self.isEditing = false
 		self:SaveSetting()
 		
 		-- Cheater! (We arent getting anything)
@@ -196,15 +372,36 @@ Classes:NewClass("Config_EditBox_Frame", "Config_EditBox"){
 	end,
 
 	SetFrame = function(self, frame)
-		local name = frame and frame.GetName and frame:GetName()
-		if name then
-			self:SetText(name)
-		else
-			self:SetText(tostring(frame))
+		if self.lastFrame == frame then
+			return
 		end
+
+		local name
+		if not frame then
+			name = "nil"
+		else
+			name = frame.GetName and frame:GetName()
+			if name then
+				self:SetText(name)
+			else
+				local gen = FrameHelper:GenerateFramePathString(frame)
+				if gen:find("%[%?%]") then
+					self:SetText(tostring(frame))
+				else
+					self:SetText(gen)
+				end
+			end
+		end
+
+		self.lastFrameText = self:GetText()
+		self.lastFrame = frame
 	end,
 
 	GetFrame = function(self)
+		if self.lastFrameText == self:GetText() then
+			return self.lastFrame
+		end
+
 		local text = self:GetText()
 		local frame = _G[text]
 		if type(frame) == "table" and type(frame[0]) == "userdata" then
@@ -213,6 +410,14 @@ Classes:NewClass("Config_EditBox_Frame", "Config_EditBox"){
 			local FrameMap = self:GetFrameMap()
 			if FrameMap[text] then
 				return FrameMap[text]
+			end
+
+			local func = loadstring("return " .. text)
+			if func then
+				local success, frame = pcall(func)
+				if success and type(frame) == "table" and type(frame[0]) == "userdata" then
+					return frame
+				end
 			end
 
 			-- TODO
@@ -244,23 +449,33 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 		self.RelativeTo.text:SetText("Relative To")
 		self.RelativeTo:SetWidth(350)
 
-		Classes.Config_Slider:NewFromExisting(self.X, {})
+		Classes.Config_Slider:NewFromExisting(self.X, {
+			Get = function()
+				local _, _, _, x = safecallf("GetPoint", self:GetID())
+				return x
+			end,
+		})
 		self.X:UseEditBox()
 		self.X.text:SetText("X")
 		self.X:SetMinMaxValues()
 		self.X:SetMode(self.X.MODE_ADJUSTING)
-		self.X:SetRange(10)
+		self.X:SetRange(50)
 		self.X:SetValueStep(0.1)
 		self.X:SetWheelStep(1)
 		self.X:SetWidth(self:GetWidth()/2 - 22)
 		self.X.SaveSetting = self.SaveSettingChildOverride
 
-		Classes.Config_Slider:NewFromExisting(self.Y, {})
+		Classes.Config_Slider:NewFromExisting(self.Y, {
+			Get = function()
+				local _, _, _, _, y = safecallf("GetPoint", self:GetID())
+				return y
+			end,
+		})
 		self.Y:UseEditBox()
 		self.Y.text:SetText("Y")
 		self.Y:SetMinMaxValues()
 		self.Y:SetMode(self.Y.MODE_ADJUSTING)
-		self.Y:SetRange(10)
+		self.Y:SetRange(50)
 		self.Y:SetValueStep(0.1)
 		self.Y:SetWheelStep(1)
 		self.Y:SetWidth(self:GetWidth()/2 - 22)
@@ -314,6 +529,7 @@ Classes:NewClass("Config_SetPoint", "Config_Frame"){
 	currentNumPoints = 0,
 
 	OnNewInstance_SetPoint = function(self, data)
+		self.Background:SetAlpha(0.01)
 		self:HandlePosition()
 
 		self.AddAnchor = CreateFrame("Frame", "$parentAddAnchor", self, "FrameHelper_AddAnchor")
@@ -388,6 +604,8 @@ Classes:NewClass("Config_SetPoint", "Config_Frame"){
 		self:SetHeight(self.currentNumPoints * (self[1]:GetHeight() + 5) + self.AddAnchor:GetHeight() + 6)
 	end,
 
+
+
 	-- Methods
 	SaveSetting = function(self, skipAt)
 		safecallf("ClearAllPoints")
@@ -460,7 +678,13 @@ Classes:NewClass("Config_Slider", "Slider", "Config_Frame")
 		
 
 		-- Scripts
+		OnEditFocusGained = function(self, button)
+			self.Slider.isEditing = true
+		end,
+
 		OnEditFocusLost = function(self, button)
+			self.Slider.isEditing = false
+
 			local text = tonumber(self:GetText())
 			if text then
 				self.Slider:SetValue(text)
@@ -641,12 +865,14 @@ Classes:NewClass("Config_Slider", "Slider", "Config_Frame")
 	OnMouseDown = function(self, button)
 		if button == "RightButton" then
 			self:UseEditBox()
-
-			self:ReloadSetting()
+		else
+			self.isEditing = true
 		end
 	end,
 
 	OnMouseUp = function(self)
+		self.isEditing = false
+
 		if self.mode == self.MODE_ADJUSTING then
 			self:UpdateRange()
 		end
@@ -734,7 +960,6 @@ Classes:NewClass("Config_Slider", "Slider", "Config_Frame")
 
 		if not self.EditBoxShowing then
 			self.EditBoxShowing = true
-			
 			if self.text:GetParent() == self then
 				self.text:SetParent(self.EditBox)
 			end
@@ -871,6 +1096,239 @@ Classes:NewClass("Config_CheckButton", "CheckButton", "Config_Frame"){
 
 
 
+Classes:NewClass("Resizer_Generic"){
+	-- Copied from TMW
+
+
+	tooltipTitle = "Resize",
+	tooltipText = [[|cff7fffffClick-and-drag|r to resize]],
+
+	MODE_SIZE = 1,
+	MODE_SCALE = 2,
+
+	-- Configuration. Set these on created instances.
+	scale_min = 0.4,
+	scale_max = math.huge,
+	x_min = 0,
+	x_max = math.huge,
+	y_min = 0,
+	y_max = math.huge,
+	
+	OnNewInstance_Resizer = function(self, parent)
+		self.parent = parent
+		
+		self.mode_x = self.MODE_SIZE
+		self.mode_y = self.MODE_SIZE
+
+		self.resizeButton = CreateFrame("Button", nil, parent, "FrameHelper_ResizeButton")
+		
+		-- Default module state is disabled, but default frame state is shown,
+		-- so initially we need to hide the button so that the two states agree with eachother.
+		self.resizeButton:Hide()
+		
+		self.resizeButton.module = self
+		
+		self.resizeButton:SetScript("OnMouseDown", self.StartSizing)
+		self.resizeButton:SetScript("OnMouseUp", self.OnMouseUp)
+		
+		-- A new function is requied for each resizeButton/parent combo because it has to be able to reference both.
+		parent:HookScript("OnSizeChanged", function(parent)
+			local scale = 1.6 / parent:GetEffectiveScale()
+			scale = max(scale, 0.6)
+			self.resizeButton:SetScale(scale)
+		end)
+
+		-- Initial value. Should be good enough.
+		self.resizeButton:SetScale(2)
+
+		self.resizeButton:HookScript("OnShow", function(self)
+			self:SetFrameLevel(self:GetParent():GetFrameLevel() + 5)
+		end)
+
+		FrameHelper:TT(self.resizeButton, self.tooltipTitle, self.tooltipText, 1, 1)
+	end,
+
+	Show = function(self)
+		self.resizeButton:Show()
+	end,
+	Hide = function(self)
+		self.resizeButton:Hide()
+	end,
+	
+	ShowTexture = function(self)
+		self.resizeButton.texture:Show()
+	end,
+	HideTexture = function(self)
+		self.resizeButton.texture:Hide()
+	end,
+
+	OnMouseUp = function(resizeButton)
+		local self = resizeButton.module
+
+		self.StopSizing(resizeButton)
+		self:ShowTexture()
+	end,
+
+	SetModes = function(self, x, y)
+		self.mode_x = x
+		self.mode_y = y
+	end,
+
+	
+	GetStandardizedCoordinates = function(self)
+		local parent = self.parent
+		local scale = parent:GetEffectiveScale()
+		
+		return
+			parent:GetLeft()*scale,
+			parent:GetRight()*scale,
+			parent:GetTop()*scale,
+			parent:GetBottom()*scale
+	end,
+	GetStandardizedCursorCoordinates = function(self)
+		-- This method is rather pointless (its just a wrapper),
+		-- but having consistency is nice so that I don't have to remember if the coords returned
+		-- are comparable to other Standardized coordinates/sizes
+		return GetCursorPosition()    
+	end,
+	GetStandardizedSize = function(self)
+		local parent = self.parent
+		local x, y = parent:GetSize()
+		local scale = parent:GetEffectiveScale()
+		
+		return x*scale, y*scale
+	end,
+	
+	StartSizing = function(resizeButton, button)
+		local self = resizeButton.module
+		local parent = self.parent
+		
+		self.std_oldLeft, self.std_oldRight, self.std_oldTop, self.std_oldBottom = self:GetStandardizedCoordinates()
+		self.std_oldWidth, self.std_oldHeight = self:GetStandardizedSize()
+		
+		self.oldScale = parent:GetScale()
+		self.oldUIScale = UIParent:GetScale()
+		self.oldEffectiveScale = parent:GetEffectiveScale()
+		
+		self.oldX, self.oldY = parent:GetLeft(), parent:GetTop()
+
+		self.button = button
+		
+		if button == "RightButton" and self.SizeUpdate_RightButton then
+			resizeButton:SetScript("OnUpdate", self.SizeUpdate_RightButton)
+		else
+			resizeButton:SetScript("OnUpdate", self.SizeUpdate)
+		end
+
+		self:HideTexture()
+	end,
+
+	StopSizing = function(resizeButton)
+		resizeButton:SetScript("OnUpdate", nil)
+
+		local self = resizeButton.module
+		self:ShowTexture()
+	end,
+
+	SizeUpdate = function(resizeButton)
+		--[[ Notes:
+		--	arg1 (self) is resizeButton
+			
+		--	The 'std_' that prefixes a lot of variables means that it is comparable with all other 'std_' variables.
+			More specifically, it means that it does not depend on the scale of either the group nor UIParent.
+		]]
+		local self = resizeButton.module
+		
+		local parent = self.parent
+		
+		local std_cursorX, std_cursorY = self:GetStandardizedCursorCoordinates()
+		
+
+		-- Calculate new scale:
+		--[[
+			Holy shit. Look at this wicked sick dimensional analysis:
+			
+			std_newHeight	oldScale
+			------------- X	-------- = newScale
+			std_oldHeight	    1
+
+			'std_Height' cancels out 'std_Height', and 'old' cancels out 'old', leaving us with 'new' and 'Scale'!
+			I just wanted to make sure I explained why this shit works, because this code used to be confusing as hell
+			(which is why I am rewriting it right now)
+		]]
+		local std_newWidth = std_cursorX - self.std_oldLeft
+		local ratio_SizeChangeX = std_newWidth/self.std_oldWidth
+		local newScaleX = ratio_SizeChangeX*self.oldScale
+		
+		local std_newHeight = self.std_oldTop - std_cursorY
+		local ratio_SizeChangeY = std_newHeight/self.std_oldHeight
+		local newScaleY = ratio_SizeChangeY*self.oldScale
+
+		local newScale = self.oldScale
+
+
+		-- Mode-dependent calculation
+		if self.mode_x == self.MODE_SCALE and self.mode_y == self.MODE_SCALE then
+			if IsControlKeyDown() then
+				-- Uses the smaller of the two scales.
+				newScale = min(newScaleX, newScaleY)
+			else
+				-- Uses the larger of the two scales.
+				newScale = max(newScaleX, newScaleY)
+			end
+
+		elseif self.mode_y == self.MODE_SCALE then
+			newScale = newScaleY
+		elseif self.mode_x == self.MODE_SCALE then
+			newScale = newScaleX
+		end
+
+		newScale = max(self.scale_min, newScale)
+		newScale = min(self.scale_max, newScale)
+
+		parent:SetScale(newScale)
+
+		if self.mode_x == self.MODE_SIZE then
+			-- Calculate new width
+			local std_newFrameWidth = std_cursorX - self.std_oldLeft
+			local newWidth = std_newFrameWidth/parent:GetEffectiveScale()
+			newWidth = max(self.x_min, newWidth)
+			newWidth = min(self.x_max, newWidth)
+
+			parent:SetWidth(newWidth)
+		end
+		if self.mode_y == self.MODE_SIZE then
+			-- Calculate new height
+			local std_newFrameHeight = abs(std_cursorY - self.std_oldTop)
+			local newHeight = std_newFrameHeight/parent:GetEffectiveScale()
+			newHeight = max(self.y_min, newHeight)
+			newHeight = min(self.y_max, newHeight)
+			
+			parent:SetHeight(newHeight)
+		end
+
+		-- We have all the data needed to find the new position of the parent.
+		-- It must be recalculated because otherwise it will scale relative to where it is anchored to,
+		-- instead of being relative to the parent's top left corner, which is what it is supposed to be.
+		-- I don't remember why this calculation here works, so lets just leave it alone.
+		-- Note that it will be re-re-calculated once we are done resizing.
+		local newX = self.oldX * self.oldScale / newScale
+		local newY = self.oldY * self.oldScale / newScale
+		parent:ClearAllPoints()
+		parent:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", newX, newY)
+
+		self:SizeUpdated()
+
+	end,
+
+	-- Override this to set settings, do updates, etc.
+	SizeUpdated = function() end,
+
+
+}
+
+
+
 Classes:NewClass("FrameType")
 {
 	OnNewInstance = function(self, frameType)
@@ -946,7 +1404,7 @@ Classes:NewClass("FrameType")
 		end
 
 		for i, Property in ipairs(self.properties) do
-			Property.frame:ReloadSetting()
+			Property.frame:Refresh()
 		end
 	end,
 }
@@ -1017,7 +1475,7 @@ Region = {
 	{	-- Alpha
 		name = "Alpha",
 
-		position = {"LEFT", "Shown", "RIGHT", 55, 0},
+		position = {"LEFT", "Shown", "RIGHT", 50, 0},
 		width = 110,
 
 		cfgType = "Config_Slider",
@@ -1333,6 +1791,46 @@ for frameType, properties in pairs(FrameHelper.properties) do
 	end
 end
 
+
+local ScrollContainerHook_Hide = function(c) c.ScrollFrame:Hide() end
+local ScrollContainerHook_Show = function(c) c.ScrollFrame:Show() end
+local ScrollContainerHook_OnSizeChanged = function(c) c.ScrollFrame:Show() end
+function FrameHelper:ConvertContainerToScrollFrame(container, exteriorScrollBarPosition, scrollBarXOffs, scrollBarSizeX)
+    
+    
+    local ScrollFrame = CreateFrame("ScrollFrame", container:GetName() .. "ScrollFrame", container:GetParent(), "FrameHelper_ScrollFrameTemplate")
+    
+    -- Make the ScrollFrame clone the container's position and size
+    local x, y = container:GetSize()
+    ScrollFrame:SetSize(x, y)
+    for i = 1, container:GetNumPoints() do
+        ScrollFrame:SetPoint(container:GetPoint(i))
+    end
+    
+
+    -- Make the container be the ScrollFrame's ScrollChild.
+    -- Fix its size to take the full width.
+    container:ClearAllPoints()
+    ScrollFrame:SetScrollChild(container)
+    container:SetSize(x, 1)
+	
+	if exteriorScrollBarPosition then
+		ScrollFrame.ScrollBar:SetPoint("LEFT", ScrollFrame, "RIGHT", scrollBarXOffs or 0, 0)
+	else
+		ScrollFrame.ScrollBar:SetPoint("RIGHT", ScrollFrame, "RIGHT", scrollBarXOffs or 0, 0)
+	end
+	
+	if scrollBarSizeX then
+		ScrollFrame.ScrollBar:SetWidth(scrollBarSizeX)
+	end
+    
+    container.ScrollFrame = ScrollFrame
+    ScrollFrame.container = container
+
+    hooksecurefunc(container, "Hide", ScrollContainerHook_Hide)
+   	hooksecurefunc(container, "Show", ScrollContainerHook_Show)   
+end
+
 function FrameHelper:Load(frame)
 	FrameHelper_Editor:Show()
 
@@ -1360,6 +1858,120 @@ function FrameHelper:Load(frame)
 	end
 end
 
+local spacerInfo = {
+	text = "",
+	isTitle = true,
+	notCheckable = true,
+}
+local function AddDropdownSpacer()
+	UIDropDownMenu_AddButton(spacerInfo, UIDROPDOWNMENU_MENU_LEVEL)
+end
+
+function FrameHelper.DD_LoadChild(DDframe)
+	local region = UIDROPDOWNMENU_MENU_VALUE or FrameHelper.CF
+
+	if type(region) == "table" then
+		local regions = region
+		local doSplit
+		if type(region[0]) == "userdata" then
+
+			regions = {region:GetChildren()}
+
+			if (region:GetRegions() and #regions > 0) then
+				tinsert(regions, true)
+			end
+
+			for i, region in FrameHelper:Vararg(region:GetRegions()) do
+				tinsert(regions, region)
+			end
+		end
+		if doSplit then
+			
+			if region:GetChildren() then
+				local info = UIDropDownMenu_CreateInfo()
+
+				info.text = "Frames"
+				info.value = {region:GetChildren()}
+				info.hasArrow = true
+				info.notCheckable = true
+
+				UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
+			end
+
+			if region:GetRegions() then
+				local info = UIDropDownMenu_CreateInfo()
+
+				info.text = "Layers"
+				info.value = {region:GetRegions()}
+				info.hasArrow = true
+				info.notCheckable = true
+
+				UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
+			end
+		else
+			local offset = 0
+			for i, region in pairs(regions) do
+				if region == true then
+					offset = i
+					AddDropdownSpacer()
+				else
+					i = i - offset
+					local info = UIDropDownMenu_CreateInfo()
+
+					info.func = FrameHelper.DD_LoadChild_Click
+					info.arg1 = region
+
+					local name
+					if region:GetName() then
+						name = region:GetName()
+					else
+						name = FrameHelper:GenerateFramePathString(region)
+					end
+					local parent = region:GetParent()
+					if parent then
+						for _, method in FrameHelper:Vararg(
+							"GetNormalTexture",
+							"GetPushedTexture",
+							"GetHighlightTexture",
+							"GetCheckedTexture",
+							"GetDisabledCheckedTexture",
+
+							"GetFontString",
+
+							"GetStatusBarTexture",
+							"GetColorValueTexture",
+							"GetColorValueThumbTexture",
+							"GetColorWheelTexture",
+							"GetColorWheelThumbTexture"
+						) do
+							if parent[method] and parent[method](parent) == region then
+								name = "$parent:" .. method .. "()"
+								break
+							end
+						end
+
+						if region:GetParent():GetName() then
+							name = gsub(name, region:GetParent():GetName(), "$parent")
+						end
+					end
+
+					info.text = "<" .. i .. " " .. region:GetObjectType() .. "> " .. name
+					info.value = region
+					info.hasArrow = region:IsObjectType("Frame") and (region:GetChildren() or region:GetRegions())
+					info.notCheckable = true
+
+					UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
+				end
+			end
+		end
+	end
+end
+
+function FrameHelper.DD_LoadChild_Click(button, region)
+	FrameHelper:Load(region)
+end
+
+
 function FrameHelper:Refresh()
 
 	for _, FrameType in pairs(self.properties) do
@@ -1374,3 +1986,89 @@ FrameHelper:SetScript("OnUpdate", function()
 		FrameHelper:Refresh()
 	end
 end)
+
+
+
+
+
+
+---------------------------------
+-- Tooltips
+---------------------------------
+
+local function TTOnEnter(self)
+	if (self.__title or self.__text) then
+		FrameHelper:TT_Anchor(self)
+		if self.__ttMinWidth then
+			GameTooltip:SetMinimumWidth(self.__ttMinWidth)
+		end
+		GameTooltip:AddLine(get(self.__title, self), HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b, false)
+		local text = get(self.__text, self)
+		if text then
+			GameTooltip:AddLine(text, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, not self.__noWrapTooltipText)
+		end
+		GameTooltip:Show()
+	end
+end
+local function TTOnLeave(self)
+	GameTooltip:Hide()
+end
+
+function FrameHelper:TT_Anchor(f)
+	GameTooltip:SetOwner(f, "ANCHOR_NONE")
+	GameTooltip:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", 0, 0)
+end
+
+function FrameHelper:TT(f, title, text, actualtitle, actualtext, showchecker)
+	-- setting actualtitle or actualtext true cause it to use exactly what is passed in for title or text as the text in the tooltip
+	-- if these variables arent set, then it will attempt to see if the string is a global variable (e.g. "MAXIMUM")
+		
+	f.__title = FrameHelper:TT_Parse(title, actualtitle)
+	f.__text = FrameHelper:TT_Parse(text, actualtext)
+	
+	f.__ttshowchecker = showchecker
+
+	if not f.__ttHooked then
+		f.__ttHooked = 1
+		f:HookScript("OnEnter", TTOnEnter)
+		f:HookScript("OnLeave", TTOnLeave)
+	else
+		if not f:GetScript("OnEnter") then
+			f:HookScript("OnEnter", TTOnEnter)
+		end
+		if not f:GetScript("OnLeave") then
+			f:HookScript("OnLeave", TTOnLeave)
+		end
+	end
+end
+
+function FrameHelper:TT_Parse(text, literal)
+	if text then
+		return (literal and text) or _G[text]
+	else
+		return text
+	end
+end
+
+function FrameHelper:TT_Copy(src, dest)
+	FrameHelper:TT(dest, src.__title, src.__text, 1, 1, src.__ttshowchecker)
+end
+
+function FrameHelper:TT_Update(f)
+	if f:IsMouseOver() and f:IsVisible() then
+		f:GetScript("OnLeave")(f)
+		if not f.IsEnabled or f:IsEnabled() or f:GetMotionScriptsWhileDisabled() then
+			f:GetScript("OnEnter")(f)
+		end
+	end
+end
+
+
+
+SLASH_FRAMEHELPER1 = "/fh"
+SLASH_FRAMEHELPER2 = "/framehelper"
+function SlashCmdList.FRAMEHELPER()
+	if GetMouseFocus() then
+		FrameHelper:Load(GetMouseFocus())
+	end
+end 
