@@ -5,5 +5,9 @@
 ## Notes: Helps developers with the design and layout of frames, layers, and general interfaces.
 ## OptionalDeps: LibOO-1.0
 
+scrollabledropdowns.lua
+scrollabledropdowns.xml
+
+
 FrameHelper.lua
 FrameHelper.xml

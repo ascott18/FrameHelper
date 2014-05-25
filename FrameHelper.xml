@@ -275,11 +275,9 @@
 				self.scrollPercentage = 1/2
 			</OnLoad>
 			<OnScrollRangeChanged>
-				if ( not yrange ) then
-					yrange = self:GetVerticalScrollRange();
-				end
+				local yrange = self:GetVerticalScrollRange()
 
-				if ( floor(yrange) == 0 ) then
+				if floor(yrange) == 0 then
 					self.ScrollBar:Hide()
 				else
 					self.ScrollBar:Show()
@@ -444,6 +442,7 @@
 								self:RegisterForDrag("LeftButton")
 							</OnLoad>
 							<OnDragStart>
+								local _
 								self.IsScrolling = true
 								_, self.startY = GetCursorPosition()
 								self.startHeight = select(5, self:GetPoint(1))
@@ -486,6 +485,7 @@
 						self:GetParent():GetScript("OnMouseWheel")(self:GetParent(), delta)
 					</OnMouseWheel>
 					<OnMouseDown>
+						local delta
 						local _, y = GetCursorPosition()
 						if self.Thumb:GetBottom()*self:GetEffectiveScale() > y then
 							delta = -1
@@ -796,7 +796,7 @@
 				</Anchors>
 				<Frames>
 
-					<Frame name="$parentDD" inherits="TMW_DropDownMenuTemplate" parentKey="DD" hidden="true">
+					<Frame name="$parentDD" inherits="UIDropDownMenuTemplate" parentKey="DD" hidden="true">
 						<Anchors>
 							<Anchor point="LEFT" relativePoint="RIGHT" x="-15" y="-4"/>
 						</Anchors>
@@ -804,14 +804,23 @@
 				</Frames>
 				<Scripts>
 					<OnLoad>
-						self.DD.initialize = FrameHelper.DD_LoadChild
+						FrameHelper.C.Config_DropDownMenu_FramePicker:NewFromExisting(self.DD)
+						self.DD:SetIncludeParent(true)
+
 
 						self:SetText("Load Child...")
 						self:SetWidth(self:GetTextWidth() + 10)
 					</OnLoad>
 					<OnClick>
-						ToggleDropDownMenu(1, nil, self.DD, self, 0, 0)
+						self.DD:ShowForRootFrame(FrameHelper.CF, self)
 					</OnClick>
+					<OnUpdate>
+						if FrameHelper.CF and FrameHelper.CF:IsObjectType("Frame") then
+							self:Enable()
+						else
+							self:Disable()
+						end
+					</OnUpdate>
 				</Scripts>
 			</Button>
 

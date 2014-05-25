@@ -146,7 +146,7 @@ do
 
 	function FrameHelper:GenerateFramePathString(frame)
 		if frame:GetName() then
-			return frame:GetName()
+			return frame:GetName(), false
 		end
 
 		wipe(fmtTable)
@@ -155,8 +155,7 @@ do
 
 		-- Edge case: no parent at all.
 		if not frame:GetParent() then
-			searchResults[tostring(frame)] = "<No Parent>"
-			return
+			return "<No Parent>", true
 		end
 		
 		local done = false
@@ -185,14 +184,14 @@ do
 				-- This is what we want, so we are done.
 				insert(fmtTable, parent:GetName())
 
-				return fmt(fmtTable)
+				return fmt(fmtTable), true
 			end
 		end
 
 
 		--insert(fmtTable, "<Unknown Parent>")
 
-		return fmt(fmtTable)
+		return fmt(fmtTable), true
 	end
 end
 
@@ -248,13 +247,175 @@ Classes:NewClass("Config_Frame", "Frame"){
 }
 
 
---[[Classes:NewClass("Config_DropDownMenu", "Config_Frame"){
+local spacerInfo = {
+	text = "",
+	isTitle = true,
+	notCheckable = true,
+}
+local function AddDropdownSpacer()
+	UIDropDownMenu_AddButton_Scrolled(spacerInfo, UIDROPDOWNMENU_MENU_LEVEL)
+end
+Classes:NewClass("Config_DropDownMenu_FramePicker", "Config_Frame"){
 	noResize = 1,
+	includeParent = false,
 
 	OnNewInstance_DropDownMenu = function(self, data)
-		self.Button:SetMotionScriptsWhileDisabled(false)
+		self.initialize = self.DD_Func
+		self.blacklist = {}
 	end,
-}]]
+
+	SetIncludeParent = function(self, includeParent)
+		self.includeParent = includeParent
+	end,
+	GetIncludeParent = function(self)
+		return self.includeParent
+	end,
+
+	ShowForRootFrame = function(self, root, anchor)
+		self.root = root
+		wipe(self.blacklist)
+		ToggleDropDownMenu(1, nil, self, anchor, 0, 0)
+	end,
+
+	DD_Func = function(self)
+		local blacklist = self.blacklist
+		local region = UIDROPDOWNMENU_MENU_VALUE or self.root
+
+		if not region:IsObjectType("Frame") then
+			return
+		end
+
+		blacklist[UIDROPDOWNMENU_MENU_LEVEL] = region
+		for i = UIDROPDOWNMENU_MENU_LEVEL+1, #blacklist do
+			blacklist[i] = nil
+		end
+
+		local regionName = FrameHelper:GenerateFramePathString(region)
+		do
+			local info = UIDropDownMenu_CreateInfo()
+
+			info.text = regionName
+			info.isTitle = true
+			info.notCheckable = true
+			info.notClickable = true
+
+			UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
+		end
+
+		local parent = region:GetParent()
+		if self.includeParent and parent and not tContains(blacklist, parent) then
+
+			local info = UIDropDownMenu_CreateInfo()
+
+
+			local name = FrameHelper:GenerateFramePathString(parent)
+			info.text = name
+
+			info.tooltipTitle = name
+			info.tooltipText = "Parent of " .. regionName
+			info.tooltipOnButton = true
+			info.tooltipWhileDisabled = true
+
+			info.disabled = tContains(blacklist, parent)
+			info.func = self.DD_Click
+			info.arg1 = parent
+			info.value = parent
+			info.hasArrow = not info.disabled
+			info.notCheckable = true
+
+			UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
+			AddDropdownSpacer()
+		end
+
+		local regions = {region:GetChildren()}
+
+		if (region:GetRegions() and #regions > 0) then
+			local info = UIDropDownMenu_CreateInfo()
+			info.text = "Frames"
+			info.isTitle = true
+			info.notCheckable = true
+			UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
+
+			tinsert(regions, true)
+		end
+
+		for i, region in FrameHelper:Vararg(region:GetRegions()) do
+			tinsert(regions, region)
+		end
+
+
+		local offset = 0
+		for i, region in pairs(regions) do
+			if region == true then
+				offset = i
+				AddDropdownSpacer()
+
+				local info = UIDropDownMenu_CreateInfo()
+				info.text = "Layers"
+				info.isTitle = true
+				info.notCheckable = true
+				UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
+			else
+				i = i - offset
+				local info = UIDropDownMenu_CreateInfo()
+
+
+				local name, wasUnnamed = FrameHelper:GenerateFramePathString(region)
+				local generatedSpecialName
+				local parent = region:GetParent()
+				if parent then
+					for _, method in FrameHelper:Vararg(
+						"GetNormalTexture",
+						"GetPushedTexture",
+						"GetHighlightTexture",
+						"GetCheckedTexture",
+						"GetDisabledCheckedTexture",
+
+						"GetFontString",
+
+						"GetStatusBarTexture",
+						"GetColorValueTexture",
+						"GetColorValueThumbTexture",
+						"GetColorWheelTexture",
+						"GetColorWheelThumbTexture"
+					) do
+						if parent[method] and parent[method](parent) == region then
+							name = "self:" .. method .. "()"
+							generatedSpecialName = true
+							break
+						end
+					end
+
+					if region:GetParent():GetName() then
+						name = gsub(name, region:GetParent():GetName(), "... ")
+					end
+				end
+
+				info.text = "<" .. i .. " " .. region:GetObjectType() .. "> " .. name
+
+				if wasUnnamed or generatedSpecialName then
+					info.tooltipTitle = name
+					info.tooltipText = "Generated path for " .. (region:GetName() or tostring(region))
+					info.tooltipOnButton = true
+					info.tooltipWhileDisabled = true
+				end
+
+				info.disabled = tContains(blacklist, region)
+				info.func = self.DD_Click
+				info.arg1 = region
+				info.value = region
+				info.hasArrow = not info.disabled and region:IsObjectType("Frame") and (region:GetChildren() or region:GetRegions())
+				info.notCheckable = true
+
+				UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
+			end
+		end
+	end,
+
+	DD_Click = function(button, region)
+		FrameHelper:Load(region)
+	end,
+}
 
 
 do -- vararg
@@ -424,6 +585,16 @@ Classes:NewClass("Config_EditBox_Frame", "Config_EditBox"){
 			return UIParent
 		end
 	end,
+
+	SaveSetting = function(self)
+		self:Set(self:GetFrame())
+
+		FrameHelper:Refresh()
+	end,
+
+	ReloadSetting = function(self)
+		self:SetFrame(self:Get())
+	end,
 }
 
 Classes:NewClass("Config_Point", "Config_Frame"){
@@ -510,7 +681,7 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 			info.value = point
 			info.arg1 = self
 			info.arg2 = point
-			UIDropDownMenu_AddButton(info)
+			UIDropDownMenu_AddButton_Scrolled(info)
 		end
 	end,
 	DD_Click = function(button, self, point)
@@ -554,7 +725,7 @@ Classes:NewClass("Config_SetPoint", "Config_Frame"){
 				info.value = point
 				info.arg1 = self
 				info.arg2 = point
-				UIDropDownMenu_AddButton(info)
+				UIDropDownMenu_AddButton_Scrolled(info)
 			end
 		end
 	end,
@@ -1051,6 +1222,12 @@ Classes:NewClass("Config_Slider", "Slider", "Config_Frame")
 	end,
 
 
+	IsEditing = function(self)
+		if (self:IsVisible() or (self.EditBox and self.EditBox:IsVisible()) ) and self.isEditing then
+			return true
+		end
+	end,
+
 	SaveSetting = function(self)
 		self:Set(self:GetValue())
 
@@ -1431,37 +1608,12 @@ FrameHelper.properties = {
 Region = {
 	{	-- Parent
 		name = "Parent",
-		cfgType = "Config_EditBox",
+		cfgType = "Config_EditBox_Frame",
 
 		--position = {"TOPLEFT", "$parent", "TOPLEFT", 15, -15},
 		width = 200,
-
-		Get = function(self, ...)
-			local parent = safecallf("GetParent")
-			if not parent then
-				return "nil"
-			else
-				local name = parent:GetName()
-				if name then
-					return name
-				else
-					return tostring(parent)
-				end
-			end
-		end,
-		Set = function(self, parent)
-			if parent ~= "" then
-				if parent == "nil" then
-					return safecallf("SetParent", nil)
-				else
-					if parent == tostring(safecallf("GetParent")) then
-						return
-					else
-						return safecallf("SetParent", parent)
-					end
-				end
-			end
-		end,
+		get = "GetParent",
+		set = "SetParent",
 	},
 
 	{	-- Shown
@@ -1858,22 +2010,17 @@ function FrameHelper:Load(frame)
 	end
 end
 
-local spacerInfo = {
-	text = "",
-	isTitle = true,
-	notCheckable = true,
-}
-local function AddDropdownSpacer()
-	UIDropDownMenu_AddButton(spacerInfo, UIDROPDOWNMENU_MENU_LEVEL)
-end
 
 function FrameHelper.DD_LoadChild(DDframe)
 	local region = UIDROPDOWNMENU_MENU_VALUE or FrameHelper.CF
 
 	if type(region) == "table" then
 		local regions = region
-		local doSplit
+
 		if type(region[0]) == "userdata" then
+			if not region:IsObjectType("Frame") then
+				return
+			end
 
 			regions = {region:GetChildren()}
 
@@ -1885,83 +2032,59 @@ function FrameHelper.DD_LoadChild(DDframe)
 				tinsert(regions, region)
 			end
 		end
-		if doSplit then
-			
-			if region:GetChildren() then
+
+		local offset = 0
+		for i, region in pairs(regions) do
+			if region == true then
+				offset = i
+				AddDropdownSpacer()
+			else
+				i = i - offset
 				local info = UIDropDownMenu_CreateInfo()
 
-				info.text = "Frames"
-				info.value = {region:GetChildren()}
-				info.hasArrow = true
-				info.notCheckable = true
+				info.func = FrameHelper.DD_LoadChild_Click
+				info.arg1 = region
 
-				UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
-			end
-
-			if region:GetRegions() then
-				local info = UIDropDownMenu_CreateInfo()
-
-				info.text = "Layers"
-				info.value = {region:GetRegions()}
-				info.hasArrow = true
-				info.notCheckable = true
-
-				UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
-			end
-		else
-			local offset = 0
-			for i, region in pairs(regions) do
-				if region == true then
-					offset = i
-					AddDropdownSpacer()
+				local name
+				if region:GetName() then
+					name = region:GetName()
 				else
-					i = i - offset
-					local info = UIDropDownMenu_CreateInfo()
-
-					info.func = FrameHelper.DD_LoadChild_Click
-					info.arg1 = region
-
-					local name
-					if region:GetName() then
-						name = region:GetName()
-					else
-						name = FrameHelper:GenerateFramePathString(region)
-					end
-					local parent = region:GetParent()
-					if parent then
-						for _, method in FrameHelper:Vararg(
-							"GetNormalTexture",
-							"GetPushedTexture",
-							"GetHighlightTexture",
-							"GetCheckedTexture",
-							"GetDisabledCheckedTexture",
-
-							"GetFontString",
-
-							"GetStatusBarTexture",
-							"GetColorValueTexture",
-							"GetColorValueThumbTexture",
-							"GetColorWheelTexture",
-							"GetColorWheelThumbTexture"
-						) do
-							if parent[method] and parent[method](parent) == region then
-								name = "$parent:" .. method .. "()"
-								break
-							end
-						end
-
-						if region:GetParent():GetName() then
-							name = gsub(name, region:GetParent():GetName(), "$parent")
-						end
-					end
-
-					info.text = "<" .. i .. " " .. region:GetObjectType() .. "> " .. name
-					info.value = region
-					info.hasArrow = region:IsObjectType("Frame") and (region:GetChildren() or region:GetRegions())
-					info.notCheckable = true
-
-					UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
+					name = FrameHelper:GenerateFramePathString(region)
 				end
+				local parent = region:GetParent()
+				if parent then
+					for _, method in FrameHelper:Vararg(
+						"GetNormalTexture",
+						"GetPushedTexture",
+						"GetHighlightTexture",
+						"GetCheckedTexture",
+						"GetDisabledCheckedTexture",
+
+						"GetFontString",
+
+						"GetStatusBarTexture",
+						"GetColorValueTexture",
+						"GetColorValueThumbTexture",
+						"GetColorWheelTexture",
+						"GetColorWheelThumbTexture"
+					) do
+						if parent[method] and parent[method](parent) == region then
+							name = "$parent:" .. method .. "()"
+							break
+						end
+					end
+
+					if region:GetParent():GetName() then
+						name = gsub(name, region:GetParent():GetName(), "$parent")
+					end
+				end
+
+				info.text = "<" .. i .. " " .. region:GetObjectType() .. "> " .. name
+				info.value = region
+				info.hasArrow = region:IsObjectType("Frame") and (region:GetChildren() or region:GetRegions())
+				info.notCheckable = true
+
+				UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
 			end
 		end
 	end

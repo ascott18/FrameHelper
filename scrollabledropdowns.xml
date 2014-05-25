@@ -1,0 +1,151 @@
+<Ui>
+	<Frame name="ScrollableUIDropDownMenus_ScrollBarTemplate" virtual="true" hidden="true">
+		<Size x="9"/>
+		<Anchors>
+			<Anchor point="TOPLEFT" x="2" y="-5"/>
+			<Anchor point="BOTTOMLEFT" x="2" y="5"/>
+		</Anchors>
+		<Backdrop edgeFile="Interface\DialogFrame\UI-DialogBox-Background-Dark" tile="true">
+			<EdgeSize>
+				<AbsValue val="1"/>
+			</EdgeSize>
+		</Backdrop>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentBackdrop" parentKey="Backdrop" setAllPoints="true">
+
+					<Color r="0.15" g="0.15" b="0.15" a="1"/>
+			
+					<Gradient orientation="HORIZONTAL">
+						<MinColor r="1" g="1" b="1" a="1"/>
+						<MaxColor r="0.6" g="0.6" b="0.6" a="1"/>
+					</Gradient>
+				</Texture>
+			</Layer>
+		</Layers>
+		
+		<Frames>
+			<Button name="$parentThumb" parentKey="Thumb" hidden="true">
+				<Anchors>
+					<Anchor point="LEFT"/>
+					<Anchor point="RIGHT"/>
+				</Anchors>
+				
+				<Backdrop edgeFile="Interface\DialogFrame\UI-DialogBox-Background-Dark" tile="true">
+					<EdgeSize>
+						<AbsValue val="1"/>
+					</EdgeSize>
+				</Backdrop>
+		
+				<NormalTexture setAllPoints="true">
+					<Color r="0.6" g="0.6" b="0.6" a="1"/>
+					
+					<Gradient orientation="HORIZONTAL">
+						<MinColor r="1" g="1" b="1" a="1"/>
+						<MaxColor r="0.6" g="0.6" b="0.6" a="1"/>
+					</Gradient>
+				</NormalTexture>
+				<HighlightTexture setAllPoints="true" alpha="0.25">
+					<Color r=".1" g="1" b="1"/>
+				</HighlightTexture>
+				<PushedTexture setAllPoints="true" >
+					<Color r="0.8" g="0.8" b="0.8" a="1"/>
+					
+					<Gradient orientation="HORIZONTAL">
+						<MinColor r="1" g="1" b="1" a="1"/>
+						<MaxColor r="0.6" g="0.6" b="0.6" a="1"/>
+					</Gradient>
+				</PushedTexture>
+				
+				<Layers>
+					<Layer level="OVERLAY">							
+						<Texture parentKey="tick1">
+							<Color r="0.2" g="0.2" b="0.2"/>
+							<Size y="1"/>
+			
+							<Anchors>
+								<Anchor point="LEFT" x="1"/>
+								<Anchor point="RIGHT" x="-1"/>
+							</Anchors>
+						</Texture>
+						<Texture>
+							<Color r="0.2" g="0.2" b="0.2"/>
+							<Size y="1"/>
+							<Anchors>
+								<Anchor point="LEFT" x="1"/>
+								<Anchor point="RIGHT" x="-1"/>
+								<Anchor point="BOTTOM" relativeKey="$parent.tick1" relativePoint="TOP" y="2"/>
+							</Anchors>
+						</Texture>
+						
+						<Texture>
+							<Color r="0.2" g="0.2" b="0.2"/>
+							<Size y="1"/>
+			
+							<Anchors>
+								<Anchor point="LEFT" x="1"/>
+								<Anchor point="RIGHT" x="-1"/>
+								<Anchor point="TOP" relativeKey="$parent.tick1" relativePoint="BOTTOM" y="-2"/>
+							</Anchors>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnLoad>
+						self:RegisterForDrag("LeftButton")
+					</OnLoad>
+					<OnHide>
+						self.IsScrolling = false
+					</OnHide>
+					<OnEnter>
+						UIDropDownMenu_StopCounting(self.listFrame)
+					</OnEnter>
+					<OnLeave>
+						UIDropDownMenu_StartCounting(self.listFrame)
+					</OnLeave>
+					<OnDragStart>
+						local SUID = LibStub("ScrollableUIDropDownMenus-1.0")
+						SUID.ScrollThumb_OnDragStart(self)
+					</OnDragStart>
+					<OnDragStop>
+						local SUID = LibStub("ScrollableUIDropDownMenus-1.0")
+						SUID.ScrollThumb_OnDragStop(self)
+					</OnDragStop>
+					<OnUpdate>
+						local SUID = LibStub("ScrollableUIDropDownMenus-1.0")
+						SUID.ScrollThumb_OnUpdate(self)
+					</OnUpdate>
+				</Scripts>
+			
+			</Button>
+		</Frames>
+		<Scripts>
+			<OnShow>
+				self.Thumb:Show()
+			</OnShow>
+			<OnHide>
+				if self.canHideThumb then
+					self.Thumb:Hide()
+				end
+			</OnHide>
+			<OnLoad>
+				self.canHideThumb = 1
+				self:SetFrameLevel(self:GetFrameLevel() + 2)
+			</OnLoad>
+			<OnEnter>
+				UIDropDownMenu_StopCounting(self.listFrame)
+			</OnEnter>
+			<OnLeave>
+				UIDropDownMenu_StartCounting(self.listFrame)
+			</OnLeave>
+			<OnMouseWheel>
+				local SUID = LibStub("ScrollableUIDropDownMenus-1.0")
+				SUID.ScrollBar_OnMouseWheel(self, delta)
+			</OnMouseWheel>
+			<OnMouseDown>
+				local SUID = LibStub("ScrollableUIDropDownMenus-1.0")
+				SUID.ScrollBar_OnMouseDown(self)
+			</OnMouseDown>
+		</Scripts>
+	</Frame>
+</Ui>
