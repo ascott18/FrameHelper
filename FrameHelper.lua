@@ -77,7 +77,7 @@ local function safecallf(method, ...)
 end
 
 
-do
+do	-- FrameHelper:GeneratePathFromString()
 	-- Copied from ImprovedFrameStack, another addon of mine.
 
 	local function insert(t, k)
@@ -195,10 +195,42 @@ do
 	end
 end
 
+do	-- FrameHelper:Vararg(...)
+	local states = {}
+	local function getstate(...)
+		local state = wipe(tremove(states) or {})
+
+		state.i = 0
+		state.l = select("#", ...)
+
+		for n = 1, state.l do
+			state[n] = select(n, ...)
+		end
+
+		return state
+	end
+
+	local function iter(state)
+		local i = state.i
+		i = i + 1
+		if i > state.l then
+			tinsert(states, state)
+			return
+		end
+		state.i = i
+
+		return i, state[i], state.l
+	end
+
+	function FrameHelper:Vararg(...)
+		return iter, getstate(...)
+	end
+end
+
 
 
 Classes:NewClass("Config_Frame", "Frame"){
-	XMLTemplate = "FrameHelper_BorderedFrame", -- shouldn't be used, but whatever
+	XMLTemplate = "FrameHelper_BorderedFrame",
 
 	NewWidget = function(self, Property)
 		local parent = M
@@ -218,6 +250,32 @@ Classes:NewClass("Config_Frame", "Frame"){
 		self.data = Property
 	end,
 
+	HandlePosition = function(self, lastFrame)
+		local Property = self.data
+
+		if Property.position then
+			Property.positions = {Property.position}
+			Property.position = nil
+		end
+
+		if Property.positions then
+			for _, position in pairs(Property.positions) do
+				local point, relTo, relPoint, x, y = unpack(position)
+				if type(relTo) == "string" and type(M.frames[relTo]) == "table" then
+					relTo = M.frames[relTo]
+				end
+				relPoint = relPoint or point
+
+				self:SetPoint(point, relTo, relPoint, x, y)
+			end
+		else
+			if prevFrame then
+				self:SetPoint("TOPLEFT", prevFrame, "BOTTOMLEFT", 0, -5)
+			else
+				self:SetPoint("TOPLEFT", M, "TOPLEFT", 10, -15)
+			end
+		end
+	end,
 
 	IsEditing = function(self)
 		if self:IsVisible() and self.isEditing then
@@ -255,11 +313,54 @@ local spacerInfo = {
 local function AddDropdownSpacer()
 	UIDropDownMenu_AddButton_Scrolled(spacerInfo, UIDROPDOWNMENU_MENU_LEVEL)
 end
-Classes:NewClass("Config_DropDownMenu_FramePicker", "Config_Frame"){
+Classes:NewClass("Config_DropDownMenu", "Config_Frame"){
+	XMLTemplate = "UIDropDownMenuTemplate",
 	noResize = 1,
-	includeParent = false,
 
 	OnNewInstance_DropDownMenu = function(self, data)
+	end,
+}
+
+Classes:NewClass("Config_DropDownMenu_SimpleSelect", "Config_DropDownMenu"){
+	noResize = 1,
+
+	OnNewInstance_DropDownMenu = function(self, data)
+		self.initialize = self.DD_Func
+		if not data.values then
+			error("values are required for simple select dropdowns")
+		end
+	end,
+
+	DD_Func = function(self)
+		for i, v in ipairs(self.data.values) do
+			local info = UIDropDownMenu_CreateInfo()
+
+			info.text = v
+			info.checked = self:Get() == v
+			info.func = self.DD_Click
+			info.value = v
+			info.arg1 = self
+			info.arg2 = v
+
+			UIDropDownMenu_AddButton_Scrolled(info, UIDROPDOWNMENU_MENU_LEVEL)
+		end
+	end,
+	DD_Click = function(button, self, value)
+		self:Set(value)
+		UIDropDownMenu_SetText(self, value)
+
+		FrameHelper:Refresh()
+	end,
+
+	ReloadSetting = function(self)
+		UIDropDownMenu_SetText(self, self:Get() or "?")
+	end,
+}
+
+Classes:NewClass("Config_DropDownMenu_FramePicker", "Config_DropDownMenu"){
+	includeParent = false,
+
+	OnNewInstance_DropDownMenu_FramePicker = function(self, data)
 		self.initialize = self.DD_Func
 		self.blacklist = {}
 	end,
@@ -417,38 +518,6 @@ Classes:NewClass("Config_DropDownMenu_FramePicker", "Config_Frame"){
 	end,
 }
 
-
-do -- vararg
-	local states = {}
-	local function getstate(...)
-		local state = wipe(tremove(states) or {})
-
-		state.i = 0
-		state.l = select("#", ...)
-
-		for n = 1, state.l do
-			state[n] = select(n, ...)
-		end
-
-		return state
-	end
-
-	local function iter(state)
-		local i = state.i
-		i = i + 1
-		if i > state.l then
-			tinsert(states, state)
-			return
-		end
-		state.i = i
-
-		return i, state[i], state.l
-	end
-
-	function FrameHelper:Vararg(...)
-		return iter, getstate(...)
-	end
-end
 
 
 Classes:NewClass("Config_EditBox", "EditBox", "Config_Frame"){
@@ -633,7 +702,6 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 		self.X:SetRange(50)
 		self.X:SetValueStep(0.1)
 		self.X:SetWheelStep(1)
-		self.X:SetWidth(self:GetWidth()/2 - 22)
 		self.X.SaveSetting = self.SaveSettingChildOverride
 
 		Classes.Config_Slider:NewFromExisting(self.Y, {
@@ -649,7 +717,6 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 		self.Y:SetRange(50)
 		self.Y:SetValueStep(0.1)
 		self.Y:SetWheelStep(1)
-		self.Y:SetWidth(self:GetWidth()/2 - 22)
 		self.Y.SaveSetting = self.SaveSettingChildOverride
 		
 
@@ -661,14 +728,15 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 	end,
 
 	points = {
-		"TOPLEFT",
-		"TOPRIGHT",
-		"BOTTOMLEFT",
-		"BOTTOMRIGHT",
 		"LEFT",
 		"RIGHT",
 		"TOP",
 		"BOTTOM",
+		"CENTER",
+		"TOPLEFT",
+		"TOPRIGHT",
+		"BOTTOMLEFT",
+		"BOTTOMRIGHT",
 	},
 
 	DD_Init = function(DDFrame)
@@ -731,11 +799,6 @@ Classes:NewClass("Config_SetPoint", "Config_Frame"){
 	end,
 	DD_AddPoint_Click = function(button, self, point)
 		safecallf("SetPoint", point)
-	end,
-
-	HandlePosition = function(self)
-		self:SetPoint("LEFT", 5, 0)
-		self:SetPoint("RIGHT", -5, 0)
 	end,
 
 	SetupFrames = function(self)
@@ -1500,9 +1563,10 @@ Classes:NewClass("Resizer_Generic"){
 
 	-- Override this to set settings, do updates, etc.
 	SizeUpdated = function() end,
-
-
 }
+
+
+
 
 
 
@@ -1546,27 +1610,9 @@ Classes:NewClass("FrameType")
 				Property.frame:SetWidth(Property.width)
 			end
 
-			if Property.position then
-				local point, relTo, relPoint, x, y = unpack(Property.position)
-				if type(relTo) == "string" and type(M.frames[relTo]) == "table" then
-					relTo = M.frames[relTo]
-				end
-				relPoint = relPoint or point
-
-				Property.frame:SetPoint(point, relTo, relPoint, x, y)
-			else
-				if prevFrame then
-					Property.frame:SetPoint("TOPLEFT", prevFrame, "BOTTOMLEFT", 0, -5)
-				else
-					Property.frame:SetPoint("TOPLEFT", M, "TOPLEFT", 10, -15)
-				end
-			end
+			Property.frame:HandlePosition(prevFrame)
 			
 			prevFrame = Property.frame
-
-			if Property.frame.HandlePosition then
-				Property.frame:HandlePosition()
-			end
 
 			Property.frame:Show()
 
@@ -1610,15 +1656,19 @@ Region = {
 		name = "Parent",
 		cfgType = "Config_EditBox_Frame",
 
-		--position = {"TOPLEFT", "$parent", "TOPLEFT", 15, -15},
-		width = 200,
+		positions = {
+			{"TOPLEFT", "$parent", "TOPLEFT", 15, -15},
+			{"RIGHT", "$parent", "RIGHT", -15, 0},
+		},
+
+		width = 620,
 		get = "GetParent",
 		set = "SetParent",
 	},
 
 	{	-- Shown
 		name = "Shown",
-		position = {"LEFT", "Parent", "RIGHT", 8, 0},
+		position = {"TOPLEFT", "Parent", "BOTTOMLEFT", -7, -10},
 
 		cfgType = "Config_CheckButton",
 		get = "IsShown",
@@ -1645,7 +1695,7 @@ Region = {
 		get = "GetWidth",
 		set = "SetWidth",
 
-		position = {"TOPLEFT", "Parent", "BOTTOMLEFT", 0, -26},
+		position = {"TOPLEFT", "Shown", "BOTTOMLEFT", 7, -19},
 		width = 195,
 
 		min = -math.huge,
@@ -1679,11 +1729,14 @@ Region = {
 
 
 
-
 	{	-- SetPoint
 		name = "SetPoint",
 
-		position = {"TOP", "Width", "BOTTOM", 0, -21},
+		positions = {
+			{"LEFT", 5, 0},
+			{"RIGHT", -5, 0},
+			{"TOP", "Width", "BOTTOM", 0, -12},
+		},
 
 		cfgType = "Config_SetPoint",
 	},
@@ -1832,6 +1885,39 @@ Frame = {
 		end,
 	},
 
+	{
+		name = "FrameStrata",
+		cfgType = "Config_DropDownMenu_SimpleSelect",
+		get = "GetFrameStrata",
+		set = "SetFrameStrata",
+
+		position = {"LEFT", "Toplevel", "RIGHT", 46, -3},
+
+		values = {
+			"WORLD",
+			"BACKGROUND",
+			"LOW",
+			"MEDIUM",
+			"HIGH",
+			"DIALOG",
+			"FULLSCREEN_DIALOG",
+			"TOOLTIP",
+			"BLIZZARD",
+		},
+		init = function(self, frame)
+			UIDropDownMenu_SetWidth(frame, 130)
+		end,
+
+		Set = function(self, strata)
+			local f = FrameHelper.CF
+			if f == WorldFrame then
+				print("Changing WorldFrame's strata is generally a Very Bad Idea. So I won't let you.")
+			else
+				safecallf("SetFrameStrata", strata)
+			end
+		end,
+	},
+
 
 	--[[{	-- ID
 		name = "ID",
@@ -1850,7 +1936,7 @@ Frame = {
 
 
 
-	{	-- TopLevel
+	{	-- Toplevel
 		name = "Toplevel",
 
 		position = {"LEFT", "FrameLevel", "RIGHT", 10, 0},
@@ -1895,7 +1981,16 @@ EditBox = {
 		
 },
 FontString = {
-		
+	{
+		name = "Text",
+		get = "GetText",
+		set = "SetText",
+		cfgType = "Config_EditBox",
+		positions = {
+			{"LEFT", "Alpha", "RIGHT", 10, 0},
+			{"RIGHT", "$parent", "RIGHT", -15, 0}
+		},
+	},
 },
 GameTooltip = {
 		
@@ -1919,7 +2014,16 @@ StatusBar = {
 		
 },
 Texture = {
-		
+	{
+		name = "Texture",
+		get = "GetTexture",
+		set = "SetTexture",
+		cfgType = "Config_EditBox",
+		positions = {
+			{"LEFT", "Alpha", "RIGHT", 10, 0},
+			{"RIGHT", "$parent", "RIGHT", -15, 0}
+		},
+	},
 },
 }
 
@@ -1984,6 +2088,11 @@ function FrameHelper:ConvertContainerToScrollFrame(container, exteriorScrollBarP
 end
 
 function FrameHelper:Load(frame)
+	if frame:IsForbidden() then
+		print("FrameHelper: Tried to load forbidden frame")
+		return
+	end
+
 	FrameHelper_Editor:Show()
 
 	E = FrameHelper_Editor

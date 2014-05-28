@@ -7,7 +7,7 @@ if not SUID then return end
 
 
 
-local DEFAULT_BUTTONS_MAX = 15
+local DEFAULT_BUTTONS_MAX = 20
 local OFFSETS = setmetatable({}, {__index = function() return 0 end})
 
 local dummy = setmetatable({}, {__index = function() return 0 end})
@@ -116,13 +116,16 @@ end
 ---------------------
 
 local function SetScroll(listFrame, offset)
+	if not listFrame.__scrollableScrollBar then
+		return
+	end
+	
 	local level = listFrame:GetID()
 	
 	local maxButtons = (UIDROPDOWNMENU_OPEN_MENU.maxButtons or DEFAULT_BUTTONS_MAX)
 
-	if offset < 0 or (offset + maxButtons > (listFrame.__scrollableIndex or 0)) then
-		return
-	end
+	offset = max(offset, 0)
+	offset = min(offset, (listFrame.__scrollableIndex or 0) - maxButtons)
 
 	if OFFSETS[level] ~= offset then
 		OFFSETS[level] = offset
@@ -137,7 +140,9 @@ end
 function SUID.listFrame_OnMouseWheel(listFrame, delta)
 	local level = listFrame:GetID()
 
-	SetScroll(listFrame, OFFSETS[level] - delta)
+	local numButtonsVisible = (UIDROPDOWNMENU_OPEN_MENU.maxButtons or DEFAULT_BUTTONS_MAX)
+
+	SetScroll(listFrame, OFFSETS[level] - delta*max(1, ceil(numButtonsVisible/3 - 1)))
 end
 
 function SUID.ScrollThumb_OnDragStart(self)
@@ -203,8 +208,9 @@ function SUID.ScrollBar_OnMouseDown(self)
 	elseif y > self.Thumb:GetTop()*self:GetEffectiveScale() then
 		delta = 1
 	end
+
 	
-	SUID.ScrollBar_OnMouseWheel(self, delta)
+	SUID.listFrame_OnMouseWheel(self, delta)
 end
 
 

@@ -668,11 +668,13 @@
 			<Slider inherits="FrameHelper_SliderTemplate" parentKey="X">
 				<Anchors>
 					<Anchor point="TOPLEFT" relativeKey="$parent.Point" relativePoint="BOTTOMLEFT" x="0" y="-8"/>
+					<Anchor point="RIGHT" relativeKey="$parent" relativePoint="BOTTOM" x="-11" y="0"/>
 				</Anchors>
 			</Slider>
 			<Slider inherits="FrameHelper_SliderTemplate" parentKey="Y">
 				<Anchors>
 					<Anchor point="LEFT" relativeKey="$parent.X" relativePoint="RIGHT" x="20" />
+					<Anchor point="RIGHT" relativeKey="$parent" relativePoint="RIGHT" x="-14" y="0"/>
 				</Anchors>
 			</Slider>
 
@@ -750,11 +752,11 @@
 			<Frame name="$parentMain" parentKey="Main" >
 				<Anchors>
 					<Anchor point="TOPLEFT" y="-25"/>
-					<Anchor point="BOTTOMRIGHT" x="-10" y="1"/>
+					<Anchor point="BOTTOMRIGHT" x="-7" y="1"/>
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						FrameHelper:ConvertContainerToScrollFrame(self, true, -2)
+						FrameHelper:ConvertContainerToScrollFrame(self, true, -2, 7)
 					</OnLoad>
 				</Scripts>
 			</Frame>
