@@ -638,7 +638,7 @@
 
 
 	<Frame name="FrameHelper_PointTemplate" inherits="FrameHelper_BorderedFrame" virtual="true">
-		<Size y="80"/>
+		<Size y="62"/>
 		<Anchors>
 			<Anchor point="LEFT" x="3"/>
 			<Anchor point="RIGHT" x="-3" />
@@ -646,28 +646,28 @@
 		<Frames>
 			<Frame name="$parentPoint" inherits="UIDropDownMenuTemplate" parentKey="Point">
 				<Anchors>
-					<Anchor point="TOP" y="-9"/>
+					<Anchor point="TOP" y="-6"/>
 					<Anchor point="LEFT" x="10" />
 				</Anchors>
 			</Frame>
 
 			<Frame name="$parentRelativePoint" inherits="UIDropDownMenuTemplate" parentKey="RelativePoint">
 				<Anchors>
-					<Anchor point="TOP" y="-9"/>
+					<Anchor point="TOP" y="-6"/>
 					<Anchor point="RIGHT" x="8" />
 				</Anchors>
 			</Frame>
 
 			<EditBox inherits="FrameHelper_InputBoxTemplate" parentKey="RelativeTo">
 				<Anchors>
-					<Anchor point="LEFT" relativeKey="$parent.Point" relativePoint="RIGHT" x="-8" y="1"/>
-					<Anchor point="RIGHT" relativeKey="$parent.RelativePoint" relativePoint="LEFT" x="8" y="1"/>
+					<Anchor point="LEFT" relativeKey="$parent.Point" relativePoint="RIGHT" x="-8" y="0"/>
+					<Anchor point="RIGHT" relativeKey="$parent.RelativePoint" relativePoint="LEFT" x="8" y="0"/>
 				</Anchors>
 			</EditBox>
 
 			<Slider inherits="FrameHelper_SliderTemplate" parentKey="X">
 				<Anchors>
-					<Anchor point="TOPLEFT" relativeKey="$parent.Point" relativePoint="BOTTOMLEFT" x="0" y="-8"/>
+					<Anchor point="TOPLEFT" relativeKey="$parent.Point" relativePoint="BOTTOMLEFT" x="0" y="3"/>
 					<Anchor point="RIGHT" relativeKey="$parent" relativePoint="BOTTOM" x="-11" y="0"/>
 				</Anchors>
 			</Slider>

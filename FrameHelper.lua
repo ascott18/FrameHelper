@@ -233,6 +233,10 @@ Classes:NewClass("Config_Frame", "Frame"){
 	XMLTemplate = "FrameHelper_BorderedFrame",
 
 	NewWidget = function(self, Property)
+		if M.frames[Property.name] then
+			error("duplicate frame creation")
+		end
+
 		local parent = M
 		local f = self:New(self.isFrameObject, M:GetName() .. Property.name, M, self.XMLTemplate, nil, Property)
 		M.frames[Property.name] = f
@@ -250,7 +254,7 @@ Classes:NewClass("Config_Frame", "Frame"){
 		self.data = Property
 	end,
 
-	HandlePosition = function(self, lastFrame)
+	HandlePosition = function(self)
 		local Property = self.data
 
 		if Property.position then
@@ -260,19 +264,38 @@ Classes:NewClass("Config_Frame", "Frame"){
 
 		if Property.positions then
 			for _, position in pairs(Property.positions) do
-				local point, relTo, relPoint, x, y = unpack(position)
-				if type(relTo) == "string" and type(M.frames[relTo]) == "table" then
-					relTo = M.frames[relTo]
-				end
-				relPoint = relPoint or point
+				local point, relTo, relPoint, x, y
+				
+				if type(position[1]) == "table" then -- This table was actually a list of points to try.
+					for i, position in ipairs(position) do
+						local relTo_test = position[2]
 
-				self:SetPoint(point, relTo, relPoint, x, y)
-			end
-		else
-			if prevFrame then
-				self:SetPoint("TOPLEFT", prevFrame, "BOTTOMLEFT", 0, -5)
-			else
-				self:SetPoint("TOPLEFT", M, "TOPLEFT", 10, -15)
+						if type(relTo_test) == "string" and type(M.frames[relTo_test]) == "table" then
+							relTo_test = M.frames[relTo_test]
+						end
+						if type(relTo_test) == "table" and relTo_test:IsShown() then
+							point, _, relPoint, x, y = unpack(position)
+							relTo = relTo_test
+							break
+						end
+					end
+				else
+					point, relTo, relPoint, x, y = unpack(position)
+
+					if type(relTo) == "string" and type(M.frames[relTo]) == "table" then
+						relTo = M.frames[relTo]
+					end
+				end
+
+
+
+				if not relTo or (type(relTo) == "table" and not relTo:IsShown()) then
+					-- do nothing
+				else
+					relPoint = relPoint or point
+
+					pcall(self.SetPoint, self, point, relTo, relPoint, x, y)
+				end
 			end
 		end
 	end,
@@ -293,6 +316,10 @@ Classes:NewClass("Config_Frame", "Frame"){
 		if not self:IsEditing() then
 			self:ReloadSetting()
 		end
+	end,
+
+	TT = function(self, ...)
+		FrameHelper:TT(self, ...)
 	end,
 
 
@@ -318,6 +345,10 @@ Classes:NewClass("Config_DropDownMenu", "Config_Frame"){
 	noResize = 1,
 
 	OnNewInstance_DropDownMenu = function(self, data)
+	end,
+
+	SetText = function(self, text)
+		UIDropDownMenu_SetText(self, (self.textPrefix or "") .. text)
 	end,
 }
 
@@ -347,13 +378,13 @@ Classes:NewClass("Config_DropDownMenu_SimpleSelect", "Config_DropDownMenu"){
 	end,
 	DD_Click = function(button, self, value)
 		self:Set(value)
-		UIDropDownMenu_SetText(self, value)
+		self:SetText(value)
 
 		FrameHelper:Refresh()
 	end,
 
 	ReloadSetting = function(self)
-		UIDropDownMenu_SetText(self, self:Get() or "?")
+		self:SetText(self:Get() or "?")
 	end,
 }
 
@@ -582,6 +613,7 @@ Classes:NewClass("Config_EditBox", "EditBox", "Config_Frame"){
 
 Classes:NewClass("Config_EditBox_Frame", "Config_EditBox"){
 	FrameMap = {},
+	__noWrapTooltipText = 1,
 
 	GetFrameMap = function(self)
 		local frame
@@ -602,23 +634,26 @@ Classes:NewClass("Config_EditBox_Frame", "Config_EditBox"){
 	end,
 
 	SetFrame = function(self, frame)
-		if self.lastFrame == frame then
+		if self.lastFrameText and self.lastFrame == frame then
 			return
 		end
+		
+		self:TT(nil, nil)
 
-		local name
 		if not frame then
-			name = "nil"
+			self:SetText("nil")
 		else
-			name = frame.GetName and frame:GetName()
+			local name = frame.GetName and frame:GetName()
 			if name then
 				self:SetText(name)
 			else
 				local gen = FrameHelper:GenerateFramePathString(frame)
 				if gen:find("%[%?%]") then
 					self:SetText(tostring(frame))
+					self:TT("Generated Path:", gen:gsub("%[%?%]", "|cffff0000[?]|r"))
 				else
 					self:SetText(gen)
+					self:TT("Address:", tostring(frame))
 				end
 			end
 		end
@@ -696,7 +731,8 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 			end,
 		})
 		self.X:UseEditBox()
-		self.X.text:SetText("X")
+		--self.X.text:SetText("X")
+		self.X.midLabel = "X: "
 		self.X:SetMinMaxValues()
 		self.X:SetMode(self.X.MODE_ADJUSTING)
 		self.X:SetRange(50)
@@ -711,7 +747,8 @@ Classes:NewClass("Config_Point", "Config_Frame"){
 			end,
 		})
 		self.Y:UseEditBox()
-		self.Y.text:SetText("Y")
+		--self.Y.text:SetText("Y")
+		self.Y.midLabel = "Y: "
 		self.Y:SetMinMaxValues()
 		self.Y:SetMode(self.Y.MODE_ADJUSTING)
 		self.Y:SetRange(50)
@@ -828,11 +865,11 @@ Classes:NewClass("Config_SetPoint", "Config_Frame"){
 			self.AddAnchor:SetPoint("TOPLEFT", self[self.currentNumPoints], "BOTTOMLEFT", 0, -5)
 		end
 
-		if self.currentNumPoints == 1 then
+		--[[if self.currentNumPoints == 1 then
 			self[1].Remove:Hide()
 		elseif self[1] then
 			self[1].Remove:Show()
-		end
+		end]]
 
 
 		self:SetHeight(self.currentNumPoints * (self[1]:GetHeight() + 5) + self.AddAnchor:GetHeight() + 6)
@@ -1251,16 +1288,16 @@ Classes:NewClass("Config_Slider", "Slider", "Config_Frame")
 	SetTooltip = function(self, title, text)
 		self.ttData = {title, text}
 
-		FrameHelper:TT(self, title, self.TT_textFunc, 1, 1)
+		FrameHelper:TT(self, title, self.TT_textFunc)
 
 		if self.EditBox then
-			FrameHelper:TT(self.EditBox, title, self.TT_textFunc, 1, 1)
+			FrameHelper:TT(self.EditBox, title, self.TT_textFunc)
 			self.EditBox.ttData = self.ttData
 		end
 	end,
 
 	UpdateTexts = function(self)
-		self.Mid:SetText(self:GetValue())
+		self.Mid:SetText((self.midLabel or "") .. self:GetValue())
 
 		local minValue, maxValue = self:GetMinMaxValues()
 		
@@ -1309,7 +1346,9 @@ Classes:NewClass("Config_CheckButton", "CheckButton", "Config_Frame"){
 	-- Constructor
 	OnNewInstance_CheckButton = function(self, data)
 		self:SetMotionScriptsWhileDisabled(true)
-		self.text:SetText(self.data.name)
+		self.text:SetText(self.data.text or self.data.name)
+		self.text:SetWidth(81)
+		self.text:SetNonSpaceWrap(true)
 	end,
 
 
@@ -1385,7 +1424,7 @@ Classes:NewClass("Resizer_Generic"){
 			self:SetFrameLevel(self:GetParent():GetFrameLevel() + 5)
 		end)
 
-		FrameHelper:TT(self.resizeButton, self.tooltipTitle, self.tooltipText, 1, 1)
+		FrameHelper:TT(self.resizeButton, self.tooltipTitle, self.tooltipText)
 	end,
 
 	Show = function(self)
@@ -1577,12 +1616,10 @@ Classes:NewClass("FrameType")
 	end,
 
 	InitializeConfig = function(self)
-		if self.initializedConfig then
-			return
-		end
-
 		for i, Property in ipairs(self.properties) do
-			Classes[Property.cfgType]:NewWidget(Property)
+			if not Property.frame then
+				Classes[Property.cfgType]:NewWidget(Property)
+			end
 		end
 
 		self.initializedConfig = true
@@ -1598,7 +1635,7 @@ Classes:NewClass("FrameType")
 		end
 	end,
 
-	ShowConfig = function(self, prevFrame)
+	ShowConfig = function(self)
 		if not self.initializedConfig then
 			error("not initialized")
 		end
@@ -1610,15 +1647,11 @@ Classes:NewClass("FrameType")
 				Property.frame:SetWidth(Property.width)
 			end
 
-			Property.frame:HandlePosition(prevFrame)
-			
-			prevFrame = Property.frame
+			Property.frame:HandlePosition()
 
 			Property.frame:Show()
 
 		end
-
-		return prevFrame
 	end,
 
 	Refresh = function(self)
@@ -1649,8 +1682,27 @@ Classes:NewClass("Property")
 
 
 
+FrameHelper.compositeTypes = {
+	FontInstance = {
+		EditBox = true,
+		MessageFrame = true,
+		ScrollingMessageFrame = true,
+		FontString = true,
+	},
+	LayeredRegion = {
+		FontString = true,
+		Texture = true,
+	},
+	TextSettable = {
+		FontString = true,
+		EditBox = true,
+		GameTooltip = true,
+		Button = true,
+	},
+}
 
 FrameHelper.properties = {
+
 Region = {
 	{	-- Parent
 		name = "Parent",
@@ -1733,16 +1785,13 @@ Region = {
 		name = "SetPoint",
 
 		positions = {
-			{"LEFT", 5, 0},
-			{"RIGHT", -5, 0},
+			{"LEFT", "$parent", "LEFT", 5, 0},
+			{"RIGHT", "$parent", "RIGHT", -5, 0},
 			{"TOP", "Width", "BOTTOM", 0, -12},
 		},
 
 		cfgType = "Config_SetPoint",
 	},
-
-
-
 },
 
 Frame = {
@@ -1768,7 +1817,14 @@ Frame = {
 	{	-- Movable
 		name = "Movable",
 		
-		position = {"TOPLEFT", "SetPoint", "BOTTOMLEFT", 0, -5},
+		positions = {
+			{"LEFT", "$parent", "LEFT", 5, 0},
+			{	-- Anchor to the first of these that is shown
+				{"TOP", "JustifyH", "BOTTOM", 0, 3},
+				{"TOP", "Text", "BOTTOM", 0, -5},
+				{"TOP", "SetPoint", "BOTTOM", 0, -5},
+			},
+		},
 
 		cfgType = "Config_CheckButton",
 		get = "IsMovable",
@@ -1777,7 +1833,7 @@ Frame = {
 	{	-- Resizable
 		name = "Resizable",
 
-		position = {"LEFT", "Movable", "RIGHT", 70, 0},
+		position = {"LEFT", "Movable", "RIGHT", 80, 0},
 
 		cfgType = "Config_CheckButton",
 		get = "IsResizable",
@@ -1785,6 +1841,7 @@ Frame = {
 	},
 	{	-- ClampedToScreen
 		name = "ClampedToScreen",
+		text = "ClampedTo Screen",
 
 		position = {"LEFT", "Resizable", "RIGHT", 80, 0},
 
@@ -1795,7 +1852,7 @@ Frame = {
 	{	-- UserPlaced
 		name = "UserPlaced",
 
-		position = {"LEFT", "ClampedToScreen", "RIGHT", 100, 0},
+		position = {"LEFT", "ClampedToScreen", "RIGHT", 80, 0},
 
 		cfgType = "Config_CheckButton",
 		get = "IsUserPlaced",
@@ -1803,6 +1860,7 @@ Frame = {
 	},
 	{	-- DontSavePosition
 		name = "DontSavePosition",
+		text = "DontSave Position",
 
 		position = {"LEFT", "UserPlaced", "RIGHT", 80, 0},
 
@@ -1814,6 +1872,7 @@ Frame = {
 
 	{	-- EnableKeyboard
 		name = "EnableKeyboard",
+		text = "Enable Keyboard",
 
 		position = {"TOPLEFT", "Movable", "BOTTOMLEFT", 0, 0},
 
@@ -1821,10 +1880,23 @@ Frame = {
 		get = "IsKeyboardEnabled",
 		set = "EnableKeyboard",
 	},
+
+
+	{	-- PropagateKeyboardInput
+		name = "PropagateKeyboardInput",
+		text = "Propagate KeyboardInput",
+
+		position = {"LEFT", "EnableKeyboard", "RIGHT", 80, 0},
+
+		cfgType = "Config_CheckButton",
+		get = "GetPropagateKeyboardInput",
+		set = "SetPropagateKeyboardInput",
+	},
+
 	{	-- EnableMouse
 		name = "EnableMouse",
 		
-		position = {"LEFT", "EnableKeyboard", "RIGHT", 100, 0},
+		position = {"LEFT", "PropagateKeyboardInput", "RIGHT", 80, 0},
 
 		cfgType = "Config_CheckButton",
 		get = "IsMouseEnabled",
@@ -1832,8 +1904,9 @@ Frame = {
 	},
 	{	-- EnableMouseWheel
 		name = "EnableMouseWheel",
+		text = "Enable MouseWheel",
 		
-		position = {"LEFT", "EnableMouse", "RIGHT", 90, 0},
+		position = {"LEFT", "EnableMouse", "RIGHT", 80, 0},
 
 		cfgType = "Config_CheckButton",
 		get = "IsMouseWheelEnabled",
@@ -1841,23 +1914,13 @@ Frame = {
 	},
 	{	-- EnableJoystick
 		name = "EnableJoystick",
+		text = "Enable Joystick",
 		
-		position = {"LEFT", "EnableMouseWheel", "RIGHT", 110, 0},
+		position = {"LEFT", "EnableMouseWheel", "RIGHT", 80, 0},
 
 		cfgType = "Config_CheckButton",
 		get = "IsJoystickEnabled",
 		set = "EnableJoystick",
-	},
-
-
-	{	-- PropagateKeyboardInput
-		name = "PropagateKeyboardInput",
-
-		position = {"TOPLEFT", "EnableKeyboard", "BOTTOMRIGHT", -12, 10},
-
-		cfgType = "Config_CheckButton",
-		get = "GetPropagateKeyboardInput",
-		set = "SetPropagateKeyboardInput",
 	},
 
 
@@ -1885,7 +1948,7 @@ Frame = {
 		end,
 	},
 
-	{
+	{	-- FrameStrata
 		name = "FrameStrata",
 		cfgType = "Config_DropDownMenu_SimpleSelect",
 		get = "GetFrameStrata",
@@ -1965,54 +2028,171 @@ Frame = {
 			frame:SetRange(1)
 		end,
 	},
+},
 
+Button = {	
+},
 
+CheckButton = {	
 },
-Button = {
-		
+
+Cooldown = {	
 },
-CheckButton = {
-		
-},
-Cooldown = {
-		
-},
+
 EditBox = {
-		
 },
-FontString = {
-	{
+
+TextSettable = {	-- Composite type
+	{	-- Text
 		name = "Text",
 		get = "GetText",
 		set = "SetText",
 		cfgType = "Config_EditBox",
 		positions = {
-			{"LEFT", "Alpha", "RIGHT", 10, 0},
-			{"RIGHT", "$parent", "RIGHT", -15, 0}
+			{"LEFT", "$parent", "LEFT", 15, 0},
+			{"RIGHT", "$parent", "RIGHT", -15, 0},
+			{"TOP", "SetPoint", "BOTTOM", 0, -15},
 		},
+		init = function(self, frame)
+			frame:SetMultiLine(true)
+			frame:TT("Fontstring Text", "Press CTRL+Enter to insert a newline", 1, 1)
+		end,
+	},	
+},
+
+FontInstance = {	-- Composite type
+
+	{
+		name = "JustifyH",
+		cfgType = "Config_DropDownMenu_SimpleSelect",
+		get = "GetJustifyH",
+		set = "SetJustifyH",
+
+		positions = {
+			{
+				{"TOP", "Text", "BOTTOM", 0, -7},
+				{"TOP", "SetPoint", "BOTTOM", 0, -7},
+			},
+			{"LEFT", "$parent", "LEFT", -3, 0},
+		},
+
+		values = {
+			"LEFT",
+			"CENTER",
+			"RIGHT",
+		},
+
+		init = function(self, frame)
+			frame.textPrefix = self.name .. ": "
+			UIDropDownMenu_SetWidth(frame, 130)
+		end,
+	},
+
+	{
+		name = "JustifyV",
+		cfgType = "Config_DropDownMenu_SimpleSelect",
+		get = "GetJustifyV",
+		set = "SetJustifyV",
+
+		positions = {
+			{"LEFT", "JustifyH", "RIGHT", -23, 0},
+		},
+
+		values = {
+			"TOP",
+			"MIDDLE",
+			"BOTTOM",
+		},
+
+		init = function(self, frame)
+			frame.textPrefix = self.name .. ": "
+			UIDropDownMenu_SetWidth(frame, 130)
+		end,
 	},
 },
+
+LayeredRegion = {	-- Composite type
+},
+
+FontString = {
+
+	{	-- WordWrap
+		name = "WordWrap",
+		
+		positions = {
+			{"LEFT", "JustifyV", "RIGHT", -10, 2},
+		},
+
+		cfgType = "Config_CheckButton",
+		get = "CanWordWrap",
+		set = "SetWordWrap",
+	},
+
+	{	-- NonSpaceWrap
+		name = "NonSpaceWrap",
+		text = "NonSpace Wrap",
+		
+		positions = {
+			{"LEFT", "WordWrap", "RIGHT", 60, 0},
+		},
+
+		cfgType = "Config_CheckButton",
+		get = "CanNonSpaceWrap",
+		set = "SetNonSpaceWrap",
+	},
+
+	{	-- IndentedWordWrap
+		name = "IndentedWordWrap",
+		text = "Indented WordWrap",
+		
+		positions = {
+			{"LEFT", "NonSpaceWrap", "RIGHT", 60, 0},
+		},
+
+		cfgType = "Config_CheckButton",
+		get = "GetIndentedWordWrap",
+		set = "SetIndentedWordWrap",
+
+		init = function(self, frame)
+			-- BUG ALERT:
+			-- Blizzard's GetIndentedWordWrap and SetIndentedWordWrap are backwards.
+			-- I submitted a bug report, so hopefully they will fix it soon.
+
+			-- This code is here to detect if the bug has not yet been fixed,
+			-- and if it hasn't, then switch the two methods around.
+			-- We perform experiments on this button's label since it is an easy
+			-- fontstring that we have access to that we don't care much about.
+
+			-- if SetIndentedWordWrap is returning values, that means it is still bugged.
+			if select("#", frame.text:SetIndentedWordWrap(false)) == 1  then
+				self.get, self.set = self.set, self.get
+			end
+		end,
+	},
+
+},
+
 GameTooltip = {
-		
 },
+
 MessageFrame = {
-		
 },
+
 ScriptObject = {
-		
 },
+
 ScrollFrame = {
-		
 },
+
 ScrollingMessageFrame = {
-		
 },
-Slider = {
-		
+
+Slider = {	
 },
+
 StatusBar = {
-		
 },
+
 Texture = {
 	{
 		name = "Texture",
@@ -2026,6 +2206,7 @@ Texture = {
 	},
 },
 }
+
 
 for frameType, properties in pairs(FrameHelper.properties) do
 	FrameHelper.properties[frameType] = Classes.FrameType:New(frameType)
@@ -2044,6 +2225,14 @@ for frameType, properties in pairs(FrameHelper.properties) do
 		end
 
 		properties[i] = Classes.Property:NewFromExisting(properties[i])
+	end
+end
+
+for compositeType, types in pairs(FrameHelper.compositeTypes) do
+	for frameType in pairs(types) do
+		for k, v in ipairs(FrameHelper.properties[compositeType].properties) do 
+			tinsert(FrameHelper.properties[frameType].properties, v)
+		end
 	end
 end
 
@@ -2101,18 +2290,25 @@ function FrameHelper:Load(frame)
 
 	self.CF = frame
 
-	E.title:SetText(frame:GetName() or tostring(frame))
+	E.title:SetText(FrameHelper:GenerateFramePathString(frame))
 
 	if self.CF then
 		for _, FrameType in pairs(self.properties) do
 			FrameType:HideConfig()
 		end
 
-		local prevFrame
 		for _, FrameType in pairs(self.properties) do
 			if frame:IsObjectType(FrameType.type) then
 				FrameType:InitializeConfig()
-				prevFrame = FrameType:ShowConfig(prevFrame)
+				FrameType:ShowConfig()
+			end
+		end
+
+		-- We do this again so that positioning gets handled correctly because
+		-- the position of some frames depends on shown state of other frames
+		for _, FrameType in pairs(self.properties) do
+			if frame:IsObjectType(FrameType.type) then
+				FrameType:ShowConfig()
 				FrameType:Refresh()
 			end
 		end
@@ -2255,8 +2451,8 @@ function FrameHelper:TT(f, title, text, actualtitle, actualtext, showchecker)
 	-- setting actualtitle or actualtext true cause it to use exactly what is passed in for title or text as the text in the tooltip
 	-- if these variables arent set, then it will attempt to see if the string is a global variable (e.g. "MAXIMUM")
 		
-	f.__title = FrameHelper:TT_Parse(title, actualtitle)
-	f.__text = FrameHelper:TT_Parse(text, actualtext)
+	f.__title = title
+	f.__text = text
 	
 	f.__ttshowchecker = showchecker
 
@@ -2271,14 +2467,6 @@ function FrameHelper:TT(f, title, text, actualtitle, actualtext, showchecker)
 		if not f:GetScript("OnLeave") then
 			f:HookScript("OnLeave", TTOnLeave)
 		end
-	end
-end
-
-function FrameHelper:TT_Parse(text, literal)
-	if text then
-		return (literal and text) or _G[text]
-	else
-		return text
 	end
 end
 
